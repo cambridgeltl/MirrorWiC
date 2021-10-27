@@ -115,15 +115,15 @@ class Sap_Metric_Learning_pairwise(nn.Module):
             query_embed2_avgtype.append(query_embed2[label2is[label]].mean(0))
         query_embed_type= torch.cat([torch.stack(query_embed1_avgtype,0), torch.stack(query_embed2_avgtype,0)], dim=0)
 
-    labels_all_disambig=torch.tensor(list(range(len(labels))))
-    labels_type=torch.tensor(list(range(len(label2is))))
-    labels_all_disambig=torch.cat([labels_all_disambig, labels_all_disambig], dim=0)
-    labels_type=torch.cat([labels_type,labels_type],dim=0)
-    if self.use_miner:
-        hard_pairs = self.miner(query_embed, labels)
-        return self.loss(query_embed, labels, hard_pairs) 
-    else:
-        return (self.loss(query_embed_type, labels_type)+self.loss(query_embed,labels_all_disambig))/2
+        labels_all_disambig=torch.tensor(list(range(len(labels))))
+        labels_type=torch.tensor(list(range(len(label2is))))
+        labels_all_disambig=torch.cat([labels_all_disambig, labels_all_disambig], dim=0)
+        labels_type=torch.cat([labels_type,labels_type],dim=0)
+        if self.use_miner:
+            hard_pairs = self.miner(query_embed, labels)
+            return self.loss(query_embed, labels, hard_pairs) 
+        else:
+            return (self.loss(query_embed_type, labels_type)+self.loss(query_embed,labels_all_disambig))/2
 
 
     def reshape_candidates_for_encoder(self, candidates):
