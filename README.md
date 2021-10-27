@@ -1,4 +1,8 @@
 # MirrorWiC 
+
+
+<img align="right" width="550"  src="https://production-media.paperswithcode.com/social-images/uUwixmxISuenFDtP.png">
+
 Code repo for the **CoNLL 2021** paper:
 
 [_**MirrorWiC: On Eliciting Word-in-Context Representations from Pretrained Language Models**_](https://arxiv.org/abs/2109.09237)<br>
