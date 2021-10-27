@@ -63,143 +63,67 @@ class Sap_Metric_Learning_pairwise(nn.Module):
 
         output : (N, topk)
         """
-        
 
-        one_pass = False # for probing dropout
-        if one_pass:
-            query_toks_combined = {"input_ids": torch.cat([query_toks1["input_ids"], query_toks2["input_ids"]], dim=0), 
-                    "attention_mask": torch.cat([query_toks1["attention_mask"], query_toks2["attention_mask"]], dim=0)}
-            outputs = self.encoder(**query_toks_combined, return_dict=True)
-            last_hidden_state = outputs.last_hidden_state
-            pooler_output = outputs.pooler_output
-            if self.agg_mode=="cls":
-                query_embed = last_hidden_state[:,0]
-            elif self.agg_mode == "mean_pool":
-                query_embed = last_hidden_state.mean(1)
-                #query_embed = (last_hidden_state * query_toks_combined['attention_mask'].unsqueeze(-1)).sum(1) / query_toks_combined['attention_mask'].sum(-1).unsqueeze(-1)
-            elif self.agg_mode == "cls_pooler":
-                query_embed = pooler_output
-            else:
-                raise NotImplementedError()
+        outputs1 = self.encoder(input_ids=query_toks1['input_ids'], attention_mask=query_toks1['attention_mask'],return_dict=True, output_hidden_states=True)
+        outputs2 = self.encoder(input_ids=query_toks2['input_ids'], attention_mask=query_toks2['attention_mask'], return_dict=True, output_hidden_states=True)
+        last_hidden_state1 = outputs1.last_hidden_state
+        last_hidden_state2 = outputs2.last_hidden_state
 
-            # print embeddings, check if they are identical (even when dropout is on)
-            #print (query_embed[:len(query_toks1["input_ids"])])
-            #print (query_embed[len(query_toks1["input_ids"]):])
-            #exit()
+        pooler_output1 = outputs1.pooler_output
+        pooler_output2 = outputs2.pooler_output
+
+        if self.agg_mode=="cls":
+            query_embed1 = last_hidden_state1[:,0]  # query : [batch_size, hidden]
+            query_embed2 = last_hidden_state2[:,0]  # query : [batch_size, hidden]
+       
+
+        elif self.agg_mode=='tokenmarker4layer':
+            hidden_states1 = outputs1.hidden_states
+            hidden_states2 = outputs2.hidden_states
+            last_hidden_state1=sum(hidden_states1[-4:])/4
+            last_hidden_state2=sum(hidden_states2[-4:])/4
+            for num in range(last_hidden_state1.size()[0]):
+                embeds_per_sent=last_hidden_state1[num]
+                token_ids_per_sent=query_toks1['token_ids'][num]
+                embed_token=torch.mean(embeds_per_sent[int(token_ids_per_sent[0]):int(token_ids_per_sent[1])],dim=0,keepdim=True)
+                assert not torch.isnan(embed_token).any()
+                if num == 0:
+                    query_embed1 = embed_token
+                else:
+                    query_embed1 = torch.cat((query_embed1, embed_token),0)
+            for num in range(last_hidden_state2.size()[0]):
+                embeds_per_sent=last_hidden_state2[num]
+                token_ids_per_sent=query_toks2['token_ids'][num]
+                embed_token=torch.mean(embeds_per_sent[int(token_ids_per_sent[0]):int(token_ids_per_sent[1])],dim=0,keepdim=True)
+                assert not torch.isnan(embed_token).any()
+                if num == 0:
+                    query_embed2 = embed_token
+                else:
+                    query_embed2 = torch.cat((query_embed2, embed_token),0)
+
         else:
-            outputs1 = self.encoder(input_ids=query_toks1['input_ids'], attention_mask=query_toks1['attention_mask'],return_dict=True, output_hidden_states=True)
-            outputs2 = self.encoder(input_ids=query_toks2['input_ids'], attention_mask=query_toks2['attention_mask'], return_dict=True, output_hidden_states=True)
-            last_hidden_state1 = outputs1.last_hidden_state
-            last_hidden_state2 = outputs2.last_hidden_state
+            raise NotImplementedError()
 
+        query_embed = torch.cat([query_embed1, query_embed2], dim=0)
+        label2is=defaultdict(list)
+        for i,label in enumerate(labels):
+            label2is[label].append(i)
+        query_embed1_avgtype=[]
+        query_embed2_avgtype=[]
+        for label in label2is:
+            query_embed1_avgtype.append(query_embed1[label2is[label]].mean(0))
+            query_embed2_avgtype.append(query_embed2[label2is[label]].mean(0))
+        query_embed_type= torch.cat([torch.stack(query_embed1_avgtype,0), torch.stack(query_embed2_avgtype,0)], dim=0)
 
-            #hidden_states1 = outputs1.hidden_states
-            #hidden_states2 = outputs2.hidden_states
-
-            #num_layer = 12 # drop only one layer
-            #layermix1 = torch.stack(list(np.random.choice(hidden_states1, num_layer)),2).mean(2)
-            #layermix2 = torch.stack(list(np.random.choice(hidden_states2, num_layer)),2).mean(2)
-
-            pooler_output1 = outputs1.pooler_output
-            pooler_output2 = outputs2.pooler_output
-
-            if self.agg_mode=="cls":
-                query_embed1 = last_hidden_state1[:,0]  # query : [batch_size, hidden]
-                query_embed2 = last_hidden_state2[:,0]  # query : [batch_size, hidden]
-            elif self.agg_mode == "mean_pool":
-                query_embed1 = last_hidden_state1.mean(1)  # query : [batch_size, hidden]
-                query_embed2 = last_hidden_state2.mean(1)  # query : [batch_size, hidden]
-                #query_embed1 = (last_hidden_state1 * query_toks1['attention_mask'].unsqueeze(-1)).sum(1) / query_toks1['attention_mask'].sum(-1).unsqueeze(-1)
-                #query_embed2 = (last_hidden_state2 * query_toks2['attention_mask'].unsqueeze(-1)).sum(1) / query_toks2['attention_mask'].sum(-1).unsqueeze(-1)
-            elif self.agg_mode == "cls_pooler":
-                query_embed1 = pooler_output1
-                query_embed2 = pooler_output2
-            elif self.agg_mode == "layer_mix":
-                raise NotImplementedError()
-                #query_embed1 = layermix1.mean(1)
-                #query_embed2 = layermix2.mean(1)
-            elif self.agg_mode=='token+cls':
-                tokenind=torch.tensor([random.sample(list(range(20)),1)[0] for i in range(len(last_hidden_state1))])
-                query_embed1_token = last_hidden_state1[range(last_hidden_state1.size()[0]),tokenind,:]  # query : [batch_size, hidden]
-                query_embed2_token = last_hidden_state2[range(last_hidden_state2.size()[0]),tokenind,:] 
-                query_embed1_cls = last_hidden_state1[:,0,:]  # query : [batch_size, hidden]
-                query_embed2_cls = last_hidden_state2[:,0,:]
-                query_embed1=torch.cat([query_embed1_cls,query_embed1_token],dim=1)
-                query_embed2=torch.cat([query_embed2_cls,query_embed2_token],dim=1)
-                # print (query_embed2.size())
-            
-            elif self.agg_mode=='tokenmarker4layer':
-                hidden_states1 = outputs1.hidden_states
-                hidden_states2 = outputs2.hidden_states
-                last_hidden_state1=sum(hidden_states1[-4:])/4
-                last_hidden_state2=sum(hidden_states2[-4:])/4
-                for num in range(last_hidden_state1.size()[0]):
-                    embeds_per_sent=last_hidden_state1[num]
-                    token_ids_per_sent=query_toks1['token_ids'][num]
-                    embed_token=torch.mean(embeds_per_sent[int(token_ids_per_sent[0]):int(token_ids_per_sent[1])],dim=0,keepdim=True)
-                    assert not torch.isnan(embed_token).any()
-                    if num == 0:
-                        query_embed1 = embed_token
-                    else:
-                        query_embed1 = torch.cat((query_embed1, embed_token),0)
-                for num in range(last_hidden_state2.size()[0]):
-                    embeds_per_sent=last_hidden_state2[num]
-                    token_ids_per_sent=query_toks2['token_ids'][num]
-                    embed_token=torch.mean(embeds_per_sent[int(token_ids_per_sent[0]):int(token_ids_per_sent[1])],dim=0,keepdim=True)
-                    assert not torch.isnan(embed_token).any()
-                    if num == 0:
-                        query_embed2 = embed_token
-                    else:
-                        query_embed2 = torch.cat((query_embed2, embed_token),0)
-
-            elif self.agg_mode=='tokenmarker':
-                # tokenind1=list(zip(*query_toks1['token_ids']))[0]
-                # tokenind2=list(zip(*query_toks2['token_ids']))[0]
-                query_embed1 = last_hidden_state1[range(last_hidden_state1.size()[0]),tokenind1,:]  # query : [batch_size, hidden]
-                query_embed2 = last_hidden_state2[range(last_hidden_state2.size()[0]),tokenind2,:] 
-               
-                for num in range(last_hidden_state1.size()[0]):
-                    embeds_per_sent=last_hidden_state1[num]
-                    token_ids_per_sent=query_toks1['token_ids'][num]
-                    embed_token=torch.mean(embeds_per_sent[int(token_ids_per_sent[0]):int(token_ids_per_sent[1])],dim=0,keepdim=True)
-                    assert not torch.isnan(embed_token).any()
-                    if num == 0:
-                        query_embed1 = embed_token
-                    else:
-                        query_embed1 = torch.cat((query_embed1, embed_token),0)
-                for num in range(last_hidden_state2.size()[0]):
-                    embeds_per_sent=last_hidden_state2[num]
-                    token_ids_per_sent=query_toks2['token_ids'][num]
-                    embed_token=torch.mean(embeds_per_sent[int(token_ids_per_sent[0]):int(token_ids_per_sent[1])],dim=0,keepdim=True)
-                    assert not torch.isnan(embed_token).any()
-                    if num == 0:
-                        query_embed2 = embed_token
-                    else:
-                        query_embed2 = torch.cat((query_embed2, embed_token),0)
-            else:
-                raise NotImplementedError()
-
-            query_embed = torch.cat([query_embed1, query_embed2], dim=0)
-            label2is=defaultdict(list)
-            for i,label in enumerate(labels):
-                label2is[label].append(i)
-            query_embed1_avgtype=[]
-            query_embed2_avgtype=[]
-            for label in label2is:
-                query_embed1_avgtype.append(query_embed1[label2is[label]].mean(0))
-                query_embed2_avgtype.append(query_embed2[label2is[label]].mean(0))
-            query_embed_type= torch.cat([torch.stack(query_embed1_avgtype,0), torch.stack(query_embed2_avgtype,0)], dim=0)
-
-        labels_all_disambig=torch.tensor(list(range(len(labels))))
-        labels_type=torch.tensor(list(range(len(label2is))))
-        # labels = torch.cat([labels, labels], dim=0)
-        labels_all_disambig=torch.cat([labels_all_disambig, labels_all_disambig], dim=0)
-        labels_type=torch.cat([labels_type,labels_type],dim=0)
-        if self.use_miner:
-            hard_pairs = self.miner(query_embed, labels)
-            return self.loss(query_embed, labels, hard_pairs) 
-        else:
-            return (self.loss(query_embed_type, labels_type)+self.loss(query_embed,labels_all_disambig))/2
+    labels_all_disambig=torch.tensor(list(range(len(labels))))
+    labels_type=torch.tensor(list(range(len(label2is))))
+    labels_all_disambig=torch.cat([labels_all_disambig, labels_all_disambig], dim=0)
+    labels_type=torch.cat([labels_type,labels_type],dim=0)
+    if self.use_miner:
+        hard_pairs = self.miner(query_embed, labels)
+        return self.loss(query_embed, labels, hard_pairs) 
+    else:
+        return (self.loss(query_embed_type, labels_type)+self.loss(query_embed,labels_all_disambig))/2
 
 
     def reshape_candidates_for_encoder(self, candidates):
