@@ -50,7 +50,7 @@ Eg.
     
 ## Evaluate
    
-Download the evaluation data from [here](https://www.dropbox.com/s/c87cdj7l6ovq8nx/eval_data.zip?dl=0), and put the folder in the root directory. 
+Download the evaluation data from [here](https://www.dropbox.com/s/n6e72nurhf833qk/eval_data.zip?dl=0), and put the folder in the root directory. 
 
 Then run: 
 ```bash     
