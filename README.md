@@ -64,6 +64,19 @@ Eg.
 >> bash ./eval.sh usim cambridgeltl/mirrorwic-bert-base-uncased 0
 ```
    
+## Encode
+You can get the MirrorWiC embeddings by running the following:
+```python    
+>> from evaluation_scripts.src.helpers import get_embed
+>> from transformers import AutoTokenizer, AutoModel
+
+>> model = AutoModel.from_pretrained('cambridgeltl/mirrorwic-bert-base-uncased')
+>> tokenizer = AutoTokenizer.from_pretrained('cambridgeltl/mirrorwic-bert-base-uncased')
+
+>> texts = ['This is a [ sample ] .', 'This is another [ sample ] .'] #target words are indicated by brackets
+>> embeddings = get_embed(texts,tokenizer,model,flag='token',layer_start=9,layer_end=13,maxlen=64) # get the average embedding of the top 4 layers (layer 9 to layer 13)
+```
+
 
 ## Citation
 ```bibtex
